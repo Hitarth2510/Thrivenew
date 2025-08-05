@@ -1,0 +1,8 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect width="512" height="512" rx="64" fill="#0d6efd"/>
+<rect x="128" y="192" width="256" height="128" rx="16" fill="white"/>
+<rect x="160" y="224" width="192" height="64" rx="8" fill="#0d6efd"/>
+<circle cx="256" cy="384" r="24" fill="white"/>
+<text x="256" y="140" font-family="Arial, sans-serif" font-size="64" font-weight="bold" text-anchor="middle" fill="white">THRIVE</text>
+<text x="256" y="456" font-family="Arial, sans-serif" font-size="32" text-anchor="middle" fill="white">POS System</text>
+</svg>
