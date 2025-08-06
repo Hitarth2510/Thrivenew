@@ -7,11 +7,13 @@ $db = Database::getInstance()->getConnection();
 $method = $_SERVER['REQUEST_METHOD'];
 
 try {
-    if ($method !== 'POST') {
-        Response::error('Only POST method allowed');
+    if ($method === 'POST') {
+        handleCreateOrder($db);
+    } elseif ($method === 'GET') {
+        handleGetOrders($db);
+    } else {
+        Response::error('Only POST and GET methods allowed');
     }
-    
-    handleCreateOrder($db);
     
 } catch (Exception $e) {
     logError('Orders API Error: ' . $e->getMessage());
@@ -43,7 +45,11 @@ function handleCreateOrder($db) {
         Response::error('Invalid final amount');
     }
     
-    if (!in_array($paymentType, ['Cash', 'Card', 'UPI', 'Other'])) {
+    // Convert payment type to lowercase for validation
+    $paymentTypeForValidation = strtolower($paymentType);
+    $validPaymentTypes = ['cash', 'card', 'upi', 'other', 'wallet', 'online'];
+    
+    if (!in_array($paymentTypeForValidation, $validPaymentTypes)) {
         Response::error('Invalid payment type');
     }
     
@@ -134,6 +140,47 @@ function handleCustomer($db, $name, $mobile) {
             return $customer ? $customer['id'] : null;
         }
         throw $e;
+    }
+}
+
+function handleGetOrders($db) {
+    try {
+        $limit = (int)($_GET['limit'] ?? 20);
+        $offset = (int)($_GET['offset'] ?? 0);
+        
+        // Get recent orders with customer info
+        $stmt = $db->prepare("
+            SELECT so.*, c.name as customer_name, c.mobile as customer_mobile
+            FROM sales_orders so
+            LEFT JOIN customers c ON so.customer_id = c.id
+            ORDER BY so.created_at DESC
+            LIMIT ? OFFSET ?
+        ");
+        $stmt->execute([$limit, $offset]);
+        $orders = $stmt->fetchAll();
+        
+        // Get order items for each order
+        foreach ($orders as &$order) {
+            $stmt = $db->prepare("
+                SELECT soi.*, 
+                       CASE 
+                           WHEN soi.item_type = 'product' THEN p.name
+                           WHEN soi.item_type = 'combo' THEN c.name
+                       END as item_name
+                FROM sales_order_items soi
+                LEFT JOIN products p ON soi.item_type = 'product' AND soi.item_id = p.id
+                LEFT JOIN combos c ON soi.item_type = 'combo' AND soi.item_id = c.id
+                WHERE soi.order_id = ?
+            ");
+            $stmt->execute([$order['id']]);
+            $order['items'] = $stmt->fetchAll();
+        }
+        
+        Response::success($orders, 'Orders retrieved successfully');
+        
+    } catch (Exception $e) {
+        logError('Get orders error: ' . $e->getMessage());
+        Response::error('Failed to retrieve orders: ' . $e->getMessage());
     }
 }
 ?>

@@ -1,0 +1,2 @@
+{"timestamp":"2025-08-06T14:25:15+05:30","user_id":1,"action":"product_created","details":{"product_id":"5","name":"Pizza"},"ip":"::1"}
+{"timestamp":"2025-08-06T21:21:40+05:30","user_id":1,"action":"product_created","details":{"product_id":"6","name":"apple"},"ip":"::1"}

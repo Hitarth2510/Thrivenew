@@ -167,6 +167,8 @@ class ThriveCafe {
             this.loadMenuData();
         } else if (section === 'offers') {
             this.loadOffers();
+        } else if (section === 'orders') {
+            this.loadOrdersData();
         }
     }
 
@@ -285,15 +287,22 @@ class ThriveCafe {
     }
 
     updateDashboardStats(data) {
-        $('#totalSales').text('₹' + this.formatNumber(data.total_sales || 0));
-        $('#totalProfit').text('₹' + this.formatNumber(data.total_profit || 0));
-        $('#totalOrders').text(data.total_orders || 0);
-        $('#avgOrderValue').text('₹' + this.formatNumber(data.avg_order_value || 0));
+        const stats = data.stats || {};
+        $('#totalSales').text('₹' + this.formatNumber(stats.total_revenue || 0));
+        $('#totalProfit').text('₹' + this.formatNumber(stats.total_revenue * 0.3 || 0)); // Assuming 30% profit margin
+        $('#totalOrders').text(stats.total_orders || 0);
+        $('#avgOrderValue').text('₹' + this.formatNumber(stats.avg_order_value || 0));
+        
+        // Update recent orders
+        this.updateRecentOrders(data.recent_orders || []);
+        
+        // Update low stock items
+        this.updateLowStock(data.low_stock || []);
     }
 
     updateCharts(data) {
-        this.updateSalesChart(data.sales_trend || []);
-        this.updatePaymentChart(data.payment_methods || []);
+        this.updateSalesChart(data.sales_chart || []);
+        this.updatePaymentMethodChart(data.recent_orders || []);
     }
 
     updateSalesChart(salesData) {
@@ -304,33 +313,61 @@ class ThriveCafe {
             this.charts.sales.destroy();
         }
 
+        const labels = salesData.map(item => item.period);
+        const revenues = salesData.map(item => parseFloat(item.revenue || 0));
+        const orders = salesData.map(item => parseInt(item.order_count || 0));
+
         this.charts.sales = new Chart(ctx, {
             type: 'line',
             data: {
-                labels: salesData.map(item => item.date),
+                labels: labels,
                 datasets: [{
-                    label: 'Sales',
-                    data: salesData.map(item => item.sales),
+                    label: 'Revenue (₹)',
+                    data: revenues,
                     borderColor: '#0d6efd',
                     backgroundColor: 'rgba(13, 110, 253, 0.1)',
-                    tension: 0.1
+                    tension: 0.1,
+                    yAxisID: 'y'
                 }, {
-                    label: 'Profit',
-                    data: salesData.map(item => item.profit),
+                    label: 'Orders',
+                    data: orders,
                     borderColor: '#198754',
                     backgroundColor: 'rgba(25, 135, 84, 0.1)',
-                    tension: 0.1
+                    tension: 0.1,
+                    yAxisID: 'y1'
                 }]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
                 scales: {
+                    x: {
+                        display: true,
+                    },
                     y: {
-                        beginAtZero: true,
+                        type: 'linear',
+                        display: true,
+                        position: 'left',
                         ticks: {
                             callback: function(value) {
-                                return '₹' + value;
+                                return '₹' + value.toFixed(0);
+                            }
+                        }
+                    },
+                    y1: {
+                        type: 'linear',
+                        display: true,
+                        position: 'right',
+                        grid: {
+                            drawOnChartArea: false,
+                        },
+                        ticks: {
+                            callback: function(value) {
+                                return value + ' orders';
                             }
                         }
                     }
@@ -339,7 +376,7 @@ class ThriveCafe {
         });
     }
 
-    updatePaymentChart(paymentData) {
+    updatePaymentMethodChart(ordersData) {
         const ctx = document.getElementById('paymentChart');
         if (!ctx) return;
 
@@ -347,18 +384,36 @@ class ThriveCafe {
             this.charts.payment.destroy();
         }
 
+        // Group orders by payment method
+        const paymentGroups = {};
+        ordersData.forEach(order => {
+            const method = order.payment_method || 'Cash';
+            const amount = parseFloat(order.final_amount || 0);
+            
+            if (paymentGroups[method]) {
+                paymentGroups[method] += amount;
+            } else {
+                paymentGroups[method] = amount;
+            }
+        });
+
+        const labels = Object.keys(paymentGroups);
+        const data = Object.values(paymentGroups);
+
         this.charts.payment = new Chart(ctx, {
             type: 'doughnut',
             data: {
-                labels: paymentData.map(item => item.method),
+                labels: labels,
                 datasets: [{
-                    data: paymentData.map(item => item.amount),
+                    data: data,
                     backgroundColor: [
                         '#0d6efd',
                         '#198754',
                         '#ffc107',
                         '#dc3545',
-                        '#6f42c1'
+                        '#6f42c1',
+                        '#20c997',
+                        '#fd7e14'
                     ]
                 }]
             },
@@ -368,15 +423,68 @@ class ThriveCafe {
                 plugins: {
                     legend: {
                         position: 'bottom'
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                const percentage = ((context.raw / total) * 100).toFixed(1);
+                                return context.label + ': ₹' + context.raw.toFixed(2) + ' (' + percentage + '%)';
+                            }
+                        }
                     }
                 }
             }
         });
     }
 
+    updateRecentOrders(orders) {
+        const container = $('#recentOrders');
+        if (!orders || orders.length === 0) {
+            container.html('<p class="text-muted">No recent orders</p>');
+            return;
+        }
+
+        const html = orders.map(order => `
+            <div class="d-flex justify-content-between align-items-center py-2 border-bottom">
+                <div>
+                    <div class="fw-bold">#${order.order_number || order.id}</div>
+                    <div class="text-muted small">${order.customer_name || 'Walk-in Customer'}</div>
+                </div>
+                <div class="text-end">
+                    <div class="fw-bold">₹${parseFloat(order.final_amount || 0).toFixed(2)}</div>
+                    <div class="text-muted small">${order.payment_method || 'Cash'}</div>
+                </div>
+            </div>
+        `).join('');
+
+        container.html(html);
+    }
+
+    updateLowStock(items) {
+        const container = $('#lowStock');
+        if (!items || items.length === 0) {
+            container.html('<p class="text-muted">All items are well stocked</p>');
+            return;
+        }
+
+        const html = items.map(item => `
+            <div class="d-flex justify-content-between align-items-center py-2 border-bottom">
+                <div>
+                    <div class="fw-bold">${item.name}</div>
+                    <div class="text-muted small">Min: ${item.min_stock_level || 10}</div>
+                </div>
+                <div class="text-end">
+                    <span class="badge bg-${item.stock_quantity === 0 ? 'danger' : 'warning'}">${item.stock_quantity}</span>
+                </div>
+            </div>
+        `).join('');
+
+        container.html(html);
+    }
+
     updateTopItems(data) {
         this.updateTopProducts(data.top_products || []);
-        this.updateTopCombos(data.top_combos || []);
     }
 
     updateTopProducts(products) {
@@ -387,9 +495,14 @@ class ThriveCafe {
         }
 
         const html = products.map(product => `
-            <div class="top-item">
-                <div class="top-item-name">${product.name}</div>
-                <div class="top-item-count">${product.quantity}</div>
+            <div class="d-flex justify-content-between align-items-center py-2 border-bottom">
+                <div>
+                    <div class="fw-bold">${product.name}</div>
+                    <div class="text-muted small">₹${parseFloat(product.total_revenue || 0).toFixed(2)}</div>
+                </div>
+                <div class="text-end">
+                    <span class="badge bg-primary">${product.total_sold || 0}</span>
+                </div>
             </div>
         `).join('');
 
@@ -794,6 +907,17 @@ class ThriveCafe {
 
     async processPayment() {
         const bill = this.bills[this.currentBillTab];
+        
+        if (!bill) {
+            this.showAlert('No active bill found. Please add items to cart.', 'warning');
+            return;
+        }
+        
+        if (!bill.items || bill.items.length === 0) {
+            this.showAlert('Please add items to the bill before checkout.', 'warning');
+            return;
+        }
+        
         const customerName = $('#customerName').val();
         const customerMobile = $('#customerMobile').val();
         const paymentMethod = $('#paymentMethod').val();
@@ -814,10 +938,16 @@ class ThriveCafe {
         };
 
         try {
-            const response = await $.post('api/orders.php', orderData);
+            const response = await $.ajax({
+                url: 'api/orders.php',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify(orderData),
+                dataType: 'json'
+            });
             
             if (response.success) {
-                this.showAlert('Payment processed successfully!', 'success');
+                this.showAlert('Order saved successfully!', 'success');
                 $('#checkoutModal').modal('hide');
                 
                 // Clear current bill
@@ -836,11 +966,11 @@ class ThriveCafe {
                     this.loadDashboard();
                 }
             } else {
-                this.showAlert('Payment processing failed: ' + response.message, 'error');
+                this.showAlert('Failed to save order: ' + response.message, 'error');
             }
         } catch (error) {
-            console.error('Payment error:', error);
-            this.showAlert('Payment processing failed', 'error');
+            console.error('Save order error:', error);
+            this.showAlert('Failed to save order: ' + error.responseText, 'error');
         }
     }
 
@@ -1524,6 +1654,60 @@ class ThriveCafe {
         setTimeout(() => {
             $('.alert-floating').alert('close');
         }, 5000);
+    }
+
+    // Orders Data Management
+    async loadOrdersData() {
+        try {
+            // Load products and combos for search functionality
+            await this.loadMenuData();
+            
+            // Initialize orders section if needed
+            this.initializeOrdersSection();
+            
+            // Load recent orders if we're in the orders section
+            await this.loadRecentOrders();
+        } catch (error) {
+            console.error('Error loading orders data:', error);
+            this.showAlert('Failed to load orders data', 'error');
+        }
+    }
+
+    async loadRecentOrders() {
+        try {
+            const response = await $.get('api/orders.php', { limit: 10 });
+            if (response.success && response.data.length > 0) {
+                this.displayRecentOrders(response.data);
+            }
+        } catch (error) {
+            console.error('Error loading recent orders:', error);
+        }
+    }
+
+    displayRecentOrders(orders) {
+        // For now, we'll just log the orders
+        // Later we can add a recent orders panel to the UI
+        console.log('Recent orders loaded:', orders);
+        
+        // We could add a recent orders section to the orders page
+        // This would show recent orders for reference
+    }
+
+    initializeOrdersSection() {
+        // Ensure bills are initialized
+        if (!this.bills || Object.keys(this.bills).length === 0) {
+            this.bills = {};
+            this.bills[1] = { items: [], subtotal: 0, discount: 0, total: 0 };
+            this.currentBillTab = 1;
+            this.billCounter = 1;
+        }
+
+        // Update the bill display
+        this.updateBillDisplay();
+        this.updateBillSummary();
+
+        // Focus on search input
+        $('#itemSearch').focus();
     }
 }
 
